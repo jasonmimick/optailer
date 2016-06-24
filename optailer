@@ -1,0 +1,48 @@
+#! /bin/bash
+#
+# Author: Jason Mimick, 2016
+#
+# Please send feedback to jason.mimick@mongodb.com
+#
+# /etc/init.d/optailer
+#
+### BEGIN INIT INFO
+# Provides: optailer
+# Required-Start:
+# Should-Start:
+# Required-Stop:
+# Should-Stop:
+# Default-Start:  3 5
+# Default-Stop:   0 1 2 6
+# Short-Description: Run the optailer tool
+# Description:    Runs the optailer daemon process
+### END INIT INFO
+
+#init.d script - usually /etc/init.d/optailer
+INITD=optailer
+
+# Full path to optailer.py
+OPTAILER=optailer.py
+
+# Full path to conf file
+CONFIG=optailer.conf
+
+case "$1" in
+  start)
+    echo "Starting optailer"
+    # Start the daemon
+    python $OPTAILER start --config $CONFIG
+    ;;
+  stop)
+    echo "Stopping server"
+    # Stop the daemon
+    python $OPTAILER  stop --config $CONFIG
+    ;;
+  *)
+    # Refuse to do other stuff
+    echo "Usage: $INITD {start|stop}"
+    exit 1
+    ;;
+esac
+
+exit 0
