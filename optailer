@@ -22,21 +22,21 @@
 INITD=optailer
 
 # Full path to optailer.py
-OPTAILER=optailer.py
+OPTAILER=./optailer.py
 
 # Full path to conf file
-CONFIG=optailer.conf
+CONFIG=./optailer.conf
 
 case "$1" in
   start)
-    echo "Starting optailer"
+    echo "Starting optailer..."
     # Start the daemon
-    python $OPTAILER start --config $CONFIG
+    python $OPTAILER start $CONFIG
     ;;
   stop)
-    echo "Stopping server"
+    echo "Stopping optailer..."
     # Stop the daemon
-    python $OPTAILER  stop --config $CONFIG
+    python $OPTAILER stop $CONFIG
     ;;
   *)
     # Refuse to do other stuff

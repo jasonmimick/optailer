@@ -12,48 +12,38 @@ from threading import Thread
 import logging
 import yaml
 from daemon import runner
+import atexit
 
 class App():
 
     def __init__(self,config,logger):
+        self.stop_called = False
+        self.stop_requested = False
         self.config = config
         self.logger = logger
         self.stdin_path = '/dev/null'
-        self.stdout_path = '/dev/tty'
-        self.stderr_path = '/dev/tty'
         pf =  os.path.abspath(self.config['pidfile'])
-        print "pf="+pf
         self.pidfile_path = pf
         self.pidfile_timeout = 3
         self.vprint("__init__")
-        _base_path = os.getcwd()
-        self.stdout_path = os.path.join(_base_path, "op.myapp.out") # Can also be /dev/null
-        self.stderr_path =  os.path.join(_base_path, "op.myapp.err") # Can also be /dev/null
-        self.pidfile_path =  os.path.join(_base_path, "op.myapp.pid")
-        self.logger.info("optailer initialized")
+        self.stdout_path = os.path.abspath(self.config['logfile'])
+        self.stderr_path = os.path.abspath(self.config['logfile'])
+        self.logger.debug("optailer initialized for operation " + sys.argv[1])
 
     def run(self):
-        print "run"
-        self.logger.info("optailer run")
-        #while True:
-        self.vprint("run")
+        self.logger.info("optailer run called")
         self.tail()
 
 
     # verbose print message only if args.verbose=True
     def vprint(self,message):
-        logger.debug(message)
         if self.config['verbose']==True:
             logger.debug(message)
 
     def tail(self):
         self.logger.info("optailer tail")
-        self.vprint("tail")
         namespaces = self.config['namespaces'].split(',')
-        self.vprint(namespaces)
-        # TODO: Should fire off a separate thread for each namespace we wish to
-        # monitor, then we can check if there already is a local oplog and filter
-        # for entries which are newer than the last entry we have
+        self.logger.info("namespaces to tail: " + ", ".join(namespaces))
 
         threads = []
         for namespace in namespaces:
@@ -61,17 +51,11 @@ class App():
             t = Thread(target=self.tail_ns, args=(db_name,coll_name))
             t.setDaemon(True)
             threads.append(t)
-            #t.start()
-        #for t in threads:
-        #    self.vprint('Joining ' + str(t),args)
-        #    t.join()
+
         [t.start() for t in threads]
         while True:
              threads = [t.join(20) for t in threads if t is not None and t.isAlive()]
-        self.vprint("tail ending>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-
-
-
+        self.vprint("main thread ending>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 
     def tail_ns(self,db_name,coll_name):
         # connect up to mongodb
@@ -82,7 +66,7 @@ class App():
         db = connection[db_name]
         query = { "ns" : ns }
 
-        if 'oplog.'+coll_name in db.collection_names():
+        if local_oplog in db.collection_names():
             try:
                 last_local_oplog_entry = db[local_oplog].find({}).sort("ts",-1).limit(1).next()
                 query["ts"]={ "$gt" : last_local_oplog_entry['ts'] }
@@ -90,52 +74,57 @@ class App():
                 self.vprint(db_name+"."+local_oplog+' exists, but no entries found')
         else:
             size_bytes = self.config['local_oplog_size_megabytes']*1024*1024
-            self.vprint(db_name+"."+local_oplog+' not found, attempting to create size='+str(size_bytes)+' bytes')
+            self.logger.info(db_name+"."+local_oplog+' not found, attempting to create size='+str(size_bytes)+' bytes')
             db.create_collection(local_oplog,capped=True,size=size_bytes)
 
-        self.vprint(query)
+        self.logger.info(query)
         #start tailable cursor
         oplog = connection['local']['oplog.rs'].find(query,cursor_type = CursorType.TAILABLE_AWAIT)
         if 'ts' in query:
             oplog.add_option(8)     # oplogReplay
         while oplog.alive:
             try:
-                doc = oplog.next()
-                self.vprint(doc)
-                db[local_oplog].insert(doc)
-                self.vprint("Inserted into " + local_oplog)
+                if self.stop_requested:
+                    self.logger.info("Tail for " + local_oplog + " stopping.")
+                    oplog.close()
+                    break
+                else:
+                    doc = oplog.next()
+                    self.vprint(doc)
+                    wr = db[local_oplog].insert(doc)
+                    self.vprint(vars(wr))       # TODO: Check write result!
+                    self.vprint("Inserted into " + local_oplog)
             except StopIteration:   #thrown when out of data so wait a little
                 self.vprint("sleep")
                 time.sleep(self.config['tailSleepTimeSeconds'])
-            #finally:
-            #    oplog.close()
 
+    def cleanup(self):
+        if self.stop_called:
+            return
+        self.stop_called = True
+        self.logger.info("cleanup")
+        self.stop_requested = True
+        time.sleep(5)       # sleep to let tailing thread cleanup
+        self.logger.info("cleanup complete")
 
-#parser = argparse.ArgumentParser(description="Manage db local versions of the oplog")
-#requiredArgs = parser.add_argument_group('required named arguments')
-#requiredArgs.add_argument("--config"
-#        ,help='yaml formatted config file for optailer, e.g. /etc/optailer.conf'
-#        ,default="/etc/optailer.conf"
-#        ,required=True)
-#parser.add_argument("start",nargs='?',help='start tailing')
-#parser.add_argument("stop",nargs='?',help='stop tailing')
-#parsed_args = parser.parse_args()
+config_file = sys.argv[2]
+if not os.path.isfile( config_file ):
+    print "config file '",config_file," not found"
+    sys.exit(1)
 
-#config = yaml.safe_load(open( parsed_args.config ))
-config = yaml.safe_load(open( './optailer.conf' ))
-
-
+config = yaml.safe_load(open( config_file ))
 logger = logging.getLogger("optailer")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(getattr(logging,config.get('loglevel','INFO').upper()))
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler = logging.FileHandler(os.path.abspath(config['logfile']))
-
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-logger.info("Hello optailer!")
+logger.info("log level set to " + logging.getLevelName(logger.getEffectiveLevel()))
 app = App(config,logger)
+if not sys.argv[1]=='stop':
+    atexit.register(app.cleanup)
+
 daemon_runner = runner.DaemonRunner(app)
 #This ensures that the logger file handle does not get closed during daemonization
 daemon_runner.daemon_context.files_preserve=[handler.stream]
-print str(daemon_runner)
 daemon_runner.do_action()
