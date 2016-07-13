@@ -26,8 +26,10 @@ class App():
         self.pidfile_path = pf
         self.pidfile_timeout = 3
         self.vprint("__init__")
-        self.stdout_path = os.path.abspath(self.config['logfile'])
-        self.stderr_path = os.path.abspath(self.config['logfile'])
+        #self.stdout_path = os.path.abspath(self.config['logfile'])
+        #self.stderr_path = os.path.abspath(self.config['logfile'])
+        self.stdout_path = os.path.abspath('./op.out')
+        self.stderr_path = os.path.abspath('./op.err')
         self.logger.debug("optailer initialized for operation " + sys.argv[1])
 
     def run(self):
@@ -91,21 +93,33 @@ class App():
                 else:
                     doc = oplog.next()
                     self.vprint(doc)
-                    wr = db[local_oplog].insert(doc)
-                    self.vprint(vars(wr))       # TODO: Check write result!
-                    self.vprint("Inserted into " + local_oplog)
+		    self.try_insert(db,local_oplog,doc)
             except StopIteration:   #thrown when out of data so wait a little
                 self.vprint("sleep")
                 time.sleep(self.config['tailSleepTimeSeconds'])
+
+    def try_insert(self,db,coll_name, doc):
+        for i in range(5):
+  	    try:
+                wr = db[coll_name].insert_one(doc)
+                self.vprint(dir(wr))       # TODO: Check write result!
+                self.vprint("Inserted into " + coll_name)
+                return
+            except pymongo.errors.AutoReconnect:
+		self.logger.error("AutoReconnect error, try #" + str(i))
+                time.sleep(pow(2, i))
+	# if here, then we failed 5 times - log fatal error
+	self.logger.critical("Unable to insert document into " + coll_name + " - MongoDB unavailable?") 
+	raise Exception("Unable to insert into MongoDB")
 
     def cleanup(self):
         if self.stop_called:
             return
         self.stop_called = True
-        self.logger.info("cleanup")
+        self.logger.info("cleanup starting")
         self.stop_requested = True
         time.sleep(5)       # sleep to let tailing thread cleanup
-        self.logger.info("cleanup complete")
+        self.logger.info("cleanup complete - optailer shutting down.")
 
 config_file = sys.argv[2]
 if not os.path.isfile( config_file ):
