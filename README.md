@@ -9,20 +9,20 @@ Well configured MongoDB systems have authentication enabled. Typically, each app
 
 Other tools, such as the [mongo-connector](https://github.com/mongodb-labs/mongo-connector), provide similar functionality. ``optailer`` also adds a linux-level service wrapper to facilitate operations.
 
+## Design
 
+Each collection defined in the ```namespaces``` property of the configuration file is monitored by a separate thread. Each monitoring thread starts a tailable cursor on the oplog looking for entries for it's namespace. When entries are found they are written to a capped collection in the target namespaces' database. For example, if you wanted to monitor entries for the ```test.foo.bar``` collection, they would appear in ```test.oplog.foo.bar```. The word "oplog" is prepended to the name of the target collection.
 
 ## Installation
 
-1. Install requirements:
+Install requirements (*Note:* ``python-daemon`` only required if running < Python 2.7)
 
 ```
 $sudo pip install pymongo
 $sudo pip install python-daemon
 ```
 
-*Note:* ``python-daemon`` only required if running < Python 2.7
-
-2. Download
+Download
 
 ```
 git clone https://github.com/jasonmimick/optailer
@@ -30,9 +30,9 @@ git clone https://github.com/jasonmimick/optailer
 
 The repo contains some test scripts, at minimum you need, optailer.py, optailer, and optailer.conf.
 
-3. Edit configuration file. See [configuration options](Configuration Options).
+Edit configuration file. See [configuration-options](Configuration Options).
 
-4. Optionally, you can move files into the ```/etc/init.d``` filesystem. One way to do this:
+Optionally, you can move files into the ```/etc/init.d``` filesystem. One way to do this:
 
 ```
 $cp ./optailer.py /etc
@@ -40,16 +40,21 @@ $cp ./optailer.conf /etc
 $cp ./optailer /etc/init.d
 ```
 Then edit ```/etc/optailer``` and make sure the ```OPTAILER``` and ```CONFIG``` variables point
-to the correct locations (in this case prefixed with
-  ```/etc/``` ).
+to the correct locations.
 
 ## Usage
-
 
 Assuming the optional step 4 above was followed, to run optailer as a background 'service':
 
 ```$/etc/init.d/optailer start```
 
+To stop:
+
+```$/etc/init.d/optailer stop```
+
+Tail the optailer log file to view activity.
+
+If you wish to be able to independently start/stop monitoring for different collections, then you can run multiple instances of the service, each with it's own configuration file.
 
 ## Configuration Options
 
