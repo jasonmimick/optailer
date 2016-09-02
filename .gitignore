@@ -1,2 +1,6 @@
 
-data/diagnostic.data/metrics.interim
+data/
+*.err
+*.out
+*.data
+*.log
